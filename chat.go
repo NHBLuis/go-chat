@@ -2,12 +2,17 @@ package main
 
 import (
 	"bufio"
-	"fmt"
 	"log"
 	"net"
+	"strings"
 )
 
-var clients []net.Conn
+type Client struct {
+	connection net.Conn
+	username   string
+}
+
+var clients []Client
 
 func main() {
 	listener, err := net.Listen("tcp", "localhost:8080")
@@ -19,27 +24,61 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		clients = append(clients, conn)
-		go handleConnection(conn)
+		go handleClientLogin(conn)
 	}
-
 }
 
-func handleConnection(conn net.Conn) {
+func handleClientLogin(conn net.Conn) {
 	reader := bufio.NewReader(conn)
 	for {
-		msg, err := reader.ReadString('\n')
+		conn.Write([]byte("Please enter your Username! Pick a length between 3-20 characters \r \n"))
+		nameinput, err := reader.ReadString('\n')
 		if err != nil {
 			log.Fatal(err)
 		}
-		broadcast(msg)
+		nameinput = strings.TrimSpace(nameinput)
+		if len(nameinput) >= 3 && len(nameinput) <= 20 {
+			newclient := Client{
+				connection: conn,
+				username:   nameinput,
+			}
+
+			clients = append(clients, newclient)
+			go handleConnection(newclient)
+			break
+		} else {
+			conn.Write(([]byte("Username has to be longer >= 3 chars and <= 20 chars \r \n")))
+		}
+	}
+
+}
+
+func handleConnection(client Client) {
+	reader := bufio.NewReader(client.connection)
+	for {
+		msg, err := reader.ReadString('\n')
+		if err != nil {
+			removeClient(client)
+			broadcast(client, " has left the chat\r\n")
+			return
+		}
+		broadcast(client, msg)
 	}
 }
 
-func broadcast(msg string) {
-	fmt.Println(msg)
+func removeClient(client Client) {
+	client.connection.Close()
+	for i, currentClient := range clients {
+		if currentClient == client {
+			clients = append(clients[:i], clients[i+1:]...)
+		}
+	}
+}
 
-	for _, client := range clients {
-		client.Write([]byte(msg))
+func broadcast(sender Client, msg string) {
+	for _, currentClient := range clients {
+		if currentClient != sender {
+			currentClient.connection.Write([]byte("[" + currentClient.username + "] " + msg))
+		}
 	}
 }
